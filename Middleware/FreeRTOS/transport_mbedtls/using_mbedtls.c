@@ -991,9 +991,11 @@ TlsTransportStatus_t TLS_FreeRTOS_Connect( NetworkContext_t * pNetworkContext,
         if( lwip_socket_connect( pHostName, port, receiveTimeoutMs, sendTimeoutMs, &pNetworkContext->tcpSocket ) < 0 )
         {
             returnStatus = TLS_TRANSPORT_CONNECT_FAILURE;
+        	LogInfo( ( "lwip_socket_connect: failure") );
         }
         else
         {
+        	LogInfo( ( "lwip_socket_connect: success") );
             /* Empty else for MISRA 15.7 compliance. */
         }
     }

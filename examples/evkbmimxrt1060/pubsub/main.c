@@ -287,6 +287,8 @@ int main( void )
     BOARD_InitModuleClock();
     SCB_DisableDCache();
 
+	PRINTF("pubsub started!\r\n");
+
     IOMUXC_EnableMode( IOMUXC_GPR, kIOMUXC_GPR_ENET1TxClkOutputDir, true );
 
     GPIO_PinInit( GPIO1, 9, &gpio_config );

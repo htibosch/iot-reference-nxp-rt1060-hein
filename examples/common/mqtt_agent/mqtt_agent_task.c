@@ -568,7 +568,8 @@ static BaseType_t prvCreateTLSConnection( NetworkContext_t * pxNetworkContext )
     {
         xNetworkCredentials.pAlpnProtos = NULL;
         xConnected = pdFAIL;
-        LogError( ( "MQTT connections to AWS IoT Core are only allowed on ports 443 and 8883." ) );
+        LogError( ( "MQTT connections to AWS IoT Core only allowed port 443/8883, not %u.",
+			ulBrokerPort ) );
     }
 #else /* defined( democonfigUSE_AWS_IOT_CORE_BROKER ) */
     xNetworkCredentials.pAlpnProtos = NULL;

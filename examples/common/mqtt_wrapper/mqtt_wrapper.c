@@ -9,6 +9,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stdio.h>  /* because printf() is called. */
 
 #include "mqtt_wrapper.h"
 #include "ota_demo.h"

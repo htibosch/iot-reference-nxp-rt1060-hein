@@ -97,6 +97,7 @@ static pthread_mutex_t gFilelock;
 static SemaphoreHandle_t xSemaphore;
 #endif
 
+#include "logging.h"
 /* C runtime includes. */
 #include <PlugAndTrust_Pkg_Ver.h>
 #include <fsl_sss_util_asn1_der.h>
@@ -4245,6 +4246,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)
                     xP11KeyType = CKK_AES;
                     break;
                 default:
+                	LogInfo( ( "C_GetAttributeValue: sss_object.cipherType = %u (%02x)",
+						(unsigned)sss_object.cipherType,
+						(unsigned)sss_object.cipherType ) );
                     xResult = CKR_ATTRIBUTE_VALUE_INVALID;
                     break;
                 }

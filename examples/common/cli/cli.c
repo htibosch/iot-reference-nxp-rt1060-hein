@@ -86,14 +86,62 @@ static CLI_Command_Definition_t xPKICommandConfig =
     .pcHelpString                = "\r\n"
                                    "pki:\r\n"
                                    "   Perform Public Key Infrastructure operations for device.\r\n"
-                                   "   Usage: pki [get|set] [cert|pub_key] label\r\n",
+                                   "   Usage: pki [get|set] [cert|pub_key] label\r\n"
+                                   "     pki get cert sss:F0000001\r\n"
+                                   "//   pki get pub_key sss:F0000001\r\n"
+                                   "//   pki set cert label\r\n"
+                                   "     pki set pub_key label\r\n",
     .pxCommandInterpreter        = prvPKICommandHandler,
     .cExpectedNumberOfParameters = -1
 };
+//    "get" "cert"      sss:F0000001
+//    "set" "pub_key"   sss:F0000000
+//pki set pub_key sss:F0000000
+//-----BEGIN CERTIFICATE-----
 
 extern xConsoleIO_t uartConsoleIO;
 
 static char commandBuffer[ MAX_COMMAND_BUFFER_LENGTH + 1 ];
+static const char * keys[ KVS_NUM_KEYS ] = KVSTORE_KEYS;
+
+static void show_values()
+{
+	char pcValueBuffer[ 129 ];
+	KVStoreKey_t eKeyNr = KVS_CORE_THING_NAME;
+	for( ; eKeyNr != KVS_NUM_KEYS; eKeyNr++ )
+
+	{
+		size_t rc = 0;
+		if( eKeyNr == KVS_CORE_MQTT_PORT )
+		{
+			BaseType_t xSuccess;
+			uint32_t ulValue = KVStore_getUInt32( eKeyNr, &xSuccess );
+			if( xSuccess != pdFALSE )
+			{
+                rc = snprintf( pcValueBuffer, sizeof pcValueBuffer, "%u", ( unsigned ) ulValue );
+			}
+
+		}
+		else
+		{
+			rc = KVStore_getString( eKeyNr,
+                          pcValueBuffer,
+                          sizeof( pcValueBuffer ) );
+		}
+
+		if( rc == 0 )
+		{
+			break;
+		}
+		const char * pcKeyName = keys[ eKeyNr ];
+		// codeverify_key_id
+		unsigned key_name_length = 18;
+		LogInfo( ( "%-*.*s = '%s'",
+			( unsigned ) key_name_length,
+			( unsigned ) key_name_length,
+			( unsigned ) pcKeyName, pcValueBuffer ) );
+	}
+}
 
 static BaseType_t prvConfigCommandHandler( char * pcWriteBuffer,
                                            size_t xWriteBufferLen,
@@ -109,8 +157,14 @@ static BaseType_t prvConfigCommandHandler( char * pcWriteBuffer,
 
     if( pRequest != NULL )
     {
-        if( strncmp( pRequest, "get", requestLength ) == 0 )
+        if( strncmp( pRequest, "list", requestLength ) == 0 )
         {
+        	show_values();
+        }
+        else if( strncmp( pRequest, "get", requestLength ) == 0 )
+        {
+        	// conf get cert F0000001
+        	// conf get F0000001
             pKey = FreeRTOS_CLIGetParameter( pcCommandString, 2U, &keyLength );
 
             if( pKey != NULL )
@@ -119,7 +173,19 @@ static BaseType_t prvConfigCommandHandler( char * pcWriteBuffer,
 
                 if( result == pdPASS )
                 {
-                    valueLength = KVStore_getString( kvStoreKey, pcWriteBuffer, xWriteBufferLen );
+                	if( kvStoreKey == KVS_CORE_MQTT_PORT )
+                	{
+        				uint32_t ulValue = KVStore_getUInt32( kvStoreKey, &result );
+        				if( result == pdPASS )
+        				{
+        					valueLength = snprintf( pcWriteBuffer, xWriteBufferLen, "%u", ( unsigned ) ulValue );
+        				}
+
+                	}
+                	else
+                	{
+                		valueLength = KVStore_getString( kvStoreKey, pcWriteBuffer, xWriteBufferLen );
+                	}
 
                     if( valueLength == 0 )
                     {
@@ -139,13 +205,27 @@ static BaseType_t prvConfigCommandHandler( char * pcWriteBuffer,
 
                 if( result == pdPASS )
                 {
-                    result = KVStore_setString( kvStoreKey, valueLength, pValue );
+                	if( kvStoreKey == KVS_CORE_MQTT_PORT )
+                	{
+                		uint32_t ulNewVal = atoi( pValue );
+						result = KVStore_setUInt32( KVS_CORE_MQTT_PORT, ulNewVal );
+                	}
+                	else
+                	{
+                		result = KVStore_setString( kvStoreKey, valueLength, pValue );
+                	}
 
                     if( result == pdPASS )
                     {
+//uint32_t ulValue = KVStore_getUInt32( kvStoreKey, pValue );
+LogInfo( ( "result = %u", result ) );
                         strncpy( pcWriteBuffer, "OK", xWriteBufferLen );
                     }
                 }
+				else
+				{
+					LogInfo( ( "KVStore_getKey failed" ) );
+				}
             }
         }
     }
@@ -356,6 +436,21 @@ CK_RV prvProvisionPublicKey( uint8_t * pucKey,
     CK_SESSION_HANDLE xSession = CKR_SESSION_HANDLE_INVALID;
     CK_OBJECT_HANDLE xPublicKeyHandle = CKR_OBJECT_HANDLE_INVALID;
 
+	// prvProvision: xKeyLength 1676 xPublicKeyType 0 (RSA) LabeLength 12
+
+//  prvProvisionPublicKey: key -----BEGIN R xKeyLength 1676 pucPublicKeyLabel ▒▒▒▒▒▒▒▒ xPublicKeyLabeLength 538996485
+	LogInfo( ( "prvProvisionPublicKey: key '%-12.12s' xKeyLength %u pucPublicKeyLabel %-12.12s xPublicKeyLabeLength %u",
+		pucKey,
+        xKeyLength,
+        xPublicKeyType,
+        pucPublicKeyLabel,
+        xPublicKeyLabeLength ) );
+
+//	LogInfo( ( "prvProvision: xKeyLength %u xPublicKeyType %u LabeLength %u",
+//		( unsigned )xKeyLength,
+//		( unsigned )xPublicKeyType,
+//		( unsigned )xPublicKeyLabeLength ) );
+
     xResult = C_GetFunctionList( &pxFunctionList );
 
     if( xResult == CKR_OK )
@@ -369,17 +464,19 @@ CK_RV prvProvisionPublicKey( uint8_t * pucKey,
 
         /* Try parsing the private key using mbedtls_pk_parse_key. */
         lMbedResult = mbedtls_pk_parse_key( &xMbedPkContext, pucKey, xKeyLength, NULL, 0 );
+        // got error -15616
 
         /* If mbedtls_pk_parse_key didn't work, maybe the private key is not included in the input passed in.
          * Try to parse just the public key. */
         if( lMbedResult != 0 )
         {
             lMbedResult = mbedtls_pk_parse_public_key( &xMbedPkContext, pucKey, xKeyLength );
+            // got error -15714
         }
 
         if( lMbedResult != 0 )
         {
-            configPRINTF( ( "Failed to parse the public key. \r\n" ) );
+            configPRINTF( ( "Failed to parse the public key. Result = %u", lMbedResult ) );
             xResult = CKR_ARGUMENTS_BAD;
         }
     }
@@ -435,6 +532,8 @@ CK_RV prvProvisionPublicKey( uint8_t * pucKey,
                                                       &xLength,
                                                       xEcPoint + 2,
                                                       sizeof( xEcPoint ) - 2 );
+        // Returns -20096 or -0x4E80: MBEDTLS_ERR_ECP_FEATURE_UNAVAILABLE
+        // But lMbedResult is not tested.
         xEcPoint[ 0 ] = 0x04; /* Octet string. */
         xEcPoint[ 1 ] = ( CK_BYTE ) xLength;
 
@@ -462,11 +561,14 @@ CK_RV prvProvisionPublicKey( uint8_t * pucKey,
                                                   ( CK_ATTRIBUTE_PTR ) xPublicKeyTemplate,
                                                   sizeof( xPublicKeyTemplate ) / sizeof( CK_ATTRIBUTE ),
                                                   &xPublicKeyHandle );
+        // xResult = 6 (CKR_FUNCTION_FAILED?)
+        configPRINTF( ( "C_CreateObject returns %d", (int)xResult ) );
     }
     else
     {
         xResult = CKR_ATTRIBUTE_VALUE_INVALID;
-        configPRINTF( ( "Invalid key type. Supported options are CKK_RSA and CKK_EC.\r\n" ) );
+        configPRINTF( ( "Invalid key type: %u. Supported options are CKK_RSA and CKK_EC.\r\n",
+			( unsigned ) xPublicKeyType ) );
     }
 
     mbedtls_pk_free( &xMbedPkContext );
@@ -479,20 +581,107 @@ CK_RV prvProvisionPublicKey( uint8_t * pucKey,
     return xResult;
 }
 
+/*
+static void print_long_string( char * pcBuffer, size_t uxLength )
+{
+    char *ctx = NULL;  // Thread-safe context
+    char *token;
+
+	pcBuffer[ uxLength - 0 ] = 0;
+
+    token = strtok_r(pcBuffer, "\n", &ctx);
+    while (token != NULL) {
+        LogInfo( ( "%s", token ) );  // Prints: abcdefg, then hijklmn
+        token = strtok_r(NULL, "\n", &ctx);
+    }
+}
+*/
+
+typedef struct {
+	size_t readPtr;
+	size_t writePtr;
+	char buffer[2048];
+} SIOBufffer;
+
+static SIOBufffer IOBufffer;
+
+#include "fsl_lpuart.h"
+
+volatile int step_status;
+volatile int loop_count;
+static void fillBuffer( )
+{
+	int try_count = 0;
+
+	/* Read all data available */
+	memset(&IOBufffer, 0, sizeof IOBufffer);
+	step_status = 1;
+
+//	vTaskSuspendAll();
+	for( ;;)
+	{
+		int32_t byteRead = -1;
+		char ch;
+		loop_count++;
+
+		step_status = 1;
+		if (DbgConsole_TryGetchar( &ch ) != kStatus_Success)
+		{
+			if(++try_count >= 100000) {
+				// Time out receiving last byte
+				break;
+			}
+			//if( ( try_count % 8 ) == 0)
+			{
+//				vTaskDelay( 1 );
+			}
+			continue;
+		}
+		byteRead = ch;
+		step_status = 2;
+		if( IOBufffer.writePtr < sizeof IOBufffer.buffer )
+		{
+			IOBufffer.buffer[ IOBufffer.writePtr ] = byteRead;
+			IOBufffer.writePtr++;
+		}
+		step_status = 3;
+	}
+//  xTaskResumeAll();
+
+    step_status = 5;
+	LogInfo( ( "fillBuffer: %u", IOBufffer.writePtr ) );
+}
+
+static int32_t readBuffer( )
+{
+	int32_t rc = -1;
+	if( IOBufffer.readPtr < IOBufffer.writePtr )
+	{
+		rc = IOBufffer.buffer[ IOBufffer.readPtr ];
+		IOBufffer.readPtr++;
+	}
+	return rc;
+}
+
 CK_RV prvReadAndProvisionPublicKey( uint8_t * pucPublicKeyLabel,
-                                    size_t xPublicKeyLabeLength )
+                                    size_t xPublicKeyLabeLength,
+									const char * apBegin,
+									const char * apEnd )
 {
     int32_t byteRead;
     uint32_t ulReadOffset = 0, ulLineStart = 0, ulLineLength;
     BaseType_t xReadComplete = pdFALSE;
     CK_RV result = CKR_FUNCTION_FAILED;
 
+    /* MAX_PKI_OBJECT_LENGTH = 2048 */
     memset( pkcs11Object, 0x00, MAX_PKI_OBJECT_LENGTH );
 
+    fillBuffer( );
     /* The object needs to be null terminated for successful parsing. */
     while( ulReadOffset < MAX_PKI_OBJECT_LENGTH - 1U )
     {
-        byteRead = uartConsoleIO.getChar();
+    	byteRead = readBuffer();
+//      byteRead = uartConsoleIO.getChar();
 
         if( ( byteRead == '\r' ) || ( byteRead == '\n' ) )
         {
@@ -503,15 +692,28 @@ CK_RV prvReadAndProvisionPublicKey( uint8_t * pucPublicKeyLabel,
                 ulLineLength = ulReadOffset - ulLineStart;
                 pkcs11Object[ ulReadOffset++ ] = '\n';
 
-                if( ( ulLineLength > 0 ) &&
-                    ( strncmp( ( char * ) ( pkcs11Object + ulLineStart ),
-                               "-----END PUBLIC KEY-----",
-                               ulLineLength ) == 0 ) )
-                {
-                    pkcs11Object[ ulReadOffset++ ] = '\0';
-                    xReadComplete = pdTRUE;
-                    break;
-                }
+                if( ulLineLength > 0 )
+				{
+					uint32_t ulBeginLength = strlen( apBegin );
+                    if ( strncmp( ( char * ) ( pkcs11Object + ulLineStart ),
+                               apBegin,
+                               ulLineLength ) == 0 )
+					{
+LogInfo( ( "prvReadAndProvisionPublicKey BEGIN at %u", ulReadOffset ) );
+						memcpy( pkcs11Object, apBegin, ulBeginLength );
+						ulReadOffset = ulBeginLength;
+						pkcs11Object[ ulReadOffset++ ] = '\n';
+					}
+					else if ( strncmp( ( char * ) ( pkcs11Object + ulLineStart ),
+                               apEnd,
+                               ulLineLength ) == 0 )
+					{
+						pkcs11Object[ ulReadOffset++ ] = '\0';
+LogInfo( ( "prvReadAndProvisionPublicKey END at %u", ulReadOffset ) );
+						xReadComplete = pdTRUE;
+						break;
+					}
+				}
 
                 ulLineStart = ulReadOffset;
             }
@@ -523,20 +725,56 @@ CK_RV prvReadAndProvisionPublicKey( uint8_t * pucPublicKeyLabel,
         else
         {
             /* There was an error in reading a character. Break out of loop. */
+//			LogInfo( ( "prvReadAndProvisionPublicKey: error in reading, byteRead = %d", ( int ) byteRead ) );
             break;
         }
     }
+//  print_long_string( ( char * ) pkcs11Object, ulReadOffset );
 
+LogInfo( ( "ulReadOffset = %u xReadComplete = %u starts \"%c%c%c%c%c%c\"",
+	( unsigned ) ulReadOffset,
+	( unsigned ) xReadComplete,
+	pkcs11Object[0],
+	pkcs11Object[1],
+	pkcs11Object[2],
+	pkcs11Object[3],
+	pkcs11Object[4],
+	pkcs11Object[5]	) );
     if( xReadComplete == pdTRUE )
     {
         result = prvProvisionPublicKey( pkcs11Object,
                                         ulReadOffset,
-                                        CKK_EC,
+                                        CKK_RSA, // CKK_EC,
                                         pucPublicKeyLabel,
                                         xPublicKeyLabeLength );
     }
 
     return result;
+}
+
+static const char *pSSSLabels[] = {
+    pkcs11configLABEL_DEVICE_PRIVATE_KEY_FOR_TLS,      // "sss:F0000000"
+    pkcs11configLABEL_DEVICE_PUBLIC_KEY_FOR_TLS,       // "sss:00223345"
+    pkcs11configLABEL_DEVICE_CERTIFICATE_FOR_TLS,      // "sss:F0000001"
+    pkcs11configLABEL_CODE_VERIFICATION_KEY,           // "sss:00223344"
+    pkcs11configLABEL_JITP_CERTIFICATE,                // "sss:20181004"
+    pkcs11configLABEL_ROOT_CERTIFICATE,                // "sss:20181002"
+};
+
+BaseType_t xLableIsValid( const char * pcLabel, BaseType_t xLabelLength )
+{
+    size_t uxCount = sizeof pSSSLabels / sizeof pSSSLabels[ 0 ];
+    size_t uxIndex = 0;
+    BaseType_t xResult = pdFALSE;
+    for( ; uxIndex < uxCount; uxIndex++ )
+    {
+        if( strncasecmp( pcLabel, pSSSLabels[ uxIndex ], xLabelLength == 0 ) )
+        {
+            xResult = pdTRUE;
+            break;
+        }
+    }
+    return xResult;
 }
 
 static BaseType_t prvPKICommandHandler( char * pcWriteBuffer,
@@ -549,16 +787,20 @@ static BaseType_t prvPKICommandHandler( char * pcWriteBuffer,
 
     pRequest = FreeRTOS_CLIGetParameter( pcCommandString, 1U, &requestLength );
 
+    snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
+
     if( pRequest != NULL )
     {
         if( strncmp( pRequest, "get", requestLength ) == 0 )
         {
+        	// pki get cert sss:F0000001  // Read a certificate
             pObjectType = FreeRTOS_CLIGetParameter( pcCommandString, 2U, &objectTypeLength );
             pObjectLabel = FreeRTOS_CLIGetParameter( pcCommandString, 3U, &labelLength );
 
             if( ( pObjectLabel != NULL ) && ( pObjectType != NULL ) )
             {
-                if( strncmp( pObjectType, "cert", objectTypeLength ) == 0 )
+                if( ( strncmp( pObjectType, "cert", objectTypeLength ) == 0 ) ||
+                	( xLableIsValid( pObjectLabel, labelLength ) == pdTRUE ) )
                 {
                     pkcs11Status = prvWriteCertificate( pObjectLabel, labelLength );
 
@@ -571,26 +813,51 @@ static BaseType_t prvPKICommandHandler( char * pcWriteBuffer,
                         snprintf( pcWriteBuffer, xWriteBufferLen, "OK\r\n" );
                     }
                 }
-                else
-                {
-                    snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
-                }
-            }
-            else
-            {
-                snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
-            }
+			}
         }
         else if( strncmp( pRequest, "set", requestLength ) == 0 )
         {
-            pObjectType = FreeRTOS_CLIGetParameter( pcCommandString, 2U, &objectTypeLength );
+        	// pki set pub_key sss:F0000000  // Write a public key
+			pObjectType = FreeRTOS_CLIGetParameter( pcCommandString, 2U, &objectTypeLength );
             pObjectLabel = FreeRTOS_CLIGetParameter( pcCommandString, 3U, &labelLength );
-
+LogInfo( ( "prvPKICommandHandler: type '%-*.*s' label '%-*.*s'",
+		objectTypeLength, objectTypeLength, pObjectType,
+		labelLength, labelLength, pObjectLabel ) );
             if( ( pObjectLabel != NULL ) && ( pObjectType != NULL ) )
             {
-                if( strncmp( pObjectType, "pub_key", objectTypeLength ) == 0 )
+				UBaseType_t uTypes = 0;
+				if( strncmp( pObjectType, "cert", objectTypeLength ) == 0 )
+				{
+					uTypes = 0x01;
+				}
+				else if( strncmp( pObjectType, "pub_key", objectTypeLength ) == 0 )
+				{
+					uTypes = 0x02;
+				}
+				else if( strncmp( pObjectType, "priv_key", objectTypeLength ) == 0 )
+				{
+					uTypes = 0x03;
+				}
+				else if( strncmp( pObjectType, "rsa_priv_key", objectTypeLength ) == 0 )
+				{
+					uTypes = 0x04;
+				}
+				const char * pcStart = "";
+				const char * pcEnd = "";
+				switch( uTypes )
+				{
+					case 1: pcStart = "-----BEGIN CERTIFICATE-----";     pcEnd = "-----END CERTIFICATE-----";     break;
+					case 2: pcStart = "-----BEGIN PUBLIC KEY-----";      pcEnd = "-----END PUBLIC KEY-----";      break;
+					case 3: pcStart = "-----BEGIN PRIVATE KEY-----";     pcEnd = "-----END PRIVATE KEY-----";     break;
+					case 4: pcStart = "-----BEGIN RSA PRIVATE KEY-----"; pcEnd = "-----END RSA PRIVATE KEY-----"; break;
+				}
+				if( uTypes >= 1 || uTypes <= 4 )
                 {
-                    pkcs11Status = prvReadAndProvisionPublicKey( ( uint8_t * ) pObjectLabel, labelLength );
+                    pkcs11Status = prvReadAndProvisionPublicKey(
+						( uint8_t * ) pObjectLabel, labelLength,
+						pcStart, pcEnd);
+
+LogInfo( ( "prvPKICommandHandler: status %u", pkcs11Status ) );
 
                     if( pkcs11Status != CKR_OK )
                     {
@@ -601,24 +868,8 @@ static BaseType_t prvPKICommandHandler( char * pcWriteBuffer,
                         snprintf( pcWriteBuffer, xWriteBufferLen, "\r\nOK\r\n" );
                     }
                 }
-                else
-                {
-                    snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
-                }
-            }
-            else
-            {
-                snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
             }
         }
-        else
-        {
-            snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
-        }
-    }
-    else
-    {
-        snprintf( pcWriteBuffer, xWriteBufferLen, "ERR\r\n" );
     }
 
     return pdFALSE;

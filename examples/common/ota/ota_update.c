@@ -36,6 +36,9 @@
  * See https://freertos.org/ota/ota-mqtt-agent-demo.html
  */
 
+/* Should be defined in stdint.h, but it isn't. */
+#define PRIu64 "llu"
+
 /* Standard includes. */
 #include <string.h>
 #include <stdio.h>
@@ -589,7 +592,7 @@ static OtaPalJobDocProcessingResult_t receivedJobDocumentHandler( OtaJobEventDat
 {
     bool parseJobDocument = false;
     bool handled = false;
-    char * jobId;
+    const char * jobId = NULL;
     const char ** jobIdptr = &jobId;
     size_t jobIdLength = 0U;
     OtaPalJobDocProcessingResult_t xResult = OtaPalJobDocFileCreateFailed;

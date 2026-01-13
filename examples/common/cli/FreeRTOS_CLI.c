@@ -36,6 +36,8 @@
 /* Utils includes. */
 #include "FreeRTOS_CLI.h"
 
+#include "logging.h"
+
 /* If the application writer needs to place the buffer used by the CLI at a
  * fixed address then set configAPPLICATION_PROVIDES_cOutputBuffer to 1 in
  * FreeRTOSConfig.h, then declare an array with the following name and size in
@@ -230,26 +232,28 @@ const char * FreeRTOS_CLIGetParameter( const char * pcCommandString,
 {
     UBaseType_t uxParametersFound = 0;
     const char * pcReturn = NULL;
-
-    *pxParameterStringLength = 0;
+    const char * pcHead = pcCommandString;
+    size_t uxIndex = 0u;
+    size_t uxOffset = ~0u;
+    BaseType_t xKeyLength = 0u;
 
     while( uxParametersFound < uxWantedParameter )
     {
         /* Index the character pointer past the current word.  If this is the start
          * of the command string then the first word is the command itself. */
-        while( ( ( *pcCommandString ) != 0x00 ) && ( ( *pcCommandString ) != ' ' ) )
+        while( ( pcHead[uxIndex] != 0x00 ) && ( pcHead[uxIndex] != ' ' ) )
         {
-            pcCommandString++;
+            uxIndex++;
         }
 
         /* Find the start of the next string. */
-        while( ( ( *pcCommandString ) != 0x00 ) && ( ( *pcCommandString ) == ' ' ) )
+        while( ( pcHead[uxIndex] != 0x00 ) && ( pcHead[uxIndex] == ' ' ) )
         {
-            pcCommandString++;
+            uxIndex++;
         }
 
         /* Was a string found? */
-        if( *pcCommandString != 0x00 )
+        if( pcHead[uxIndex] != 0x00 )
         {
             /* Is this the start of the required parameter? */
             uxParametersFound++;
@@ -257,17 +261,19 @@ const char * FreeRTOS_CLIGetParameter( const char * pcCommandString,
             if( uxParametersFound == uxWantedParameter )
             {
                 /* How long is the parameter? */
-                pcReturn = pcCommandString;
+                uxOffset = uxIndex;
+				BaseType_t xLast = ( uxWantedParameter >= 3U ) ? pdTRUE : pdFALSE;
 
-                while( ( ( *pcCommandString ) != 0x00 ) && ( ( *pcCommandString ) != ' ' ) )
+                while( ( pcHead[uxIndex] != 0x00 ) &&
+                     ( ( pcHead[uxIndex] != ' ' ) || ( xLast != 0 ) ) )
                 {
-                    ( *pxParameterStringLength )++;
-                    pcCommandString++;
+                    xKeyLength++;
+                    uxIndex++;
                 }
 
-                if( *pxParameterStringLength == 0 )
+                if( xKeyLength == 0 )
                 {
-                    pcReturn = NULL;
+                    uxOffset = ~0u;
                 }
 
                 break;
@@ -278,7 +284,15 @@ const char * FreeRTOS_CLIGetParameter( const char * pcCommandString,
             break;
         }
     }
-
+    if( pxParameterStringLength != NULL )
+    {
+        *pxParameterStringLength = xKeyLength;
+    }
+    if( uxOffset != ~0u )
+    {
+        pcReturn = &( pcCommandString[ uxOffset ] );
+    }
+    configPRINTF( ("Result[%u]: '%.*s' length %u", uxWantedParameter, xKeyLength, pcReturn, (unsigned)xKeyLength ) );
     return pcReturn;
 }
 /*-----------------------------------------------------------*/

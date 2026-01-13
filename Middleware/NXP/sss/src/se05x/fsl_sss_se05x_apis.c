@@ -893,6 +893,72 @@ sss_status_t sss_se05x_key_object_allocate_handle(sss_se05x_object_t *keyObject,
     return retval;
 }
 
+typedef struct {
+	uint32_t ulKey;
+	const char *type;
+	const char *contents;
+	uint32_t ulBitsize;
+} sSlot;
+
+static const char * objectTypeName(SE05x_SecureObjectType_t aCode)
+{
+	static char pcNameSpace[32];
+	const char *pcNames[] =
+	{
+        "Typ_EC_KEY_PAIR",      // 0x01
+        "Typ_EC_PRIV_KEY",      // 0x02
+        "Typ_EC_PUB_KEY",       // 0x03
+        "Typ_RSA_KEY_PAIR",     // 0x04
+        "Typ_RSA_KEY_PAIR_CRT", // 0x05
+        "Typ_RSA_PRIV_KEY",     // 0x06
+        "Typ_RSA_PRIV_KEY_CRT", // 0x07
+        "Typ_RSA_PUB_KEY",      // 0x08
+        "Typ_AES_KEY",          // 0x09
+        "Typ_DES_KEY",          // 0x0A
+        "Typ_BINARY_FILE",      // 0x0B
+        "Typ_UserID",           // 0x0C
+        "Typ_COUNTER",          // 0x0D
+        "Typ_PCR",              // 0x0F
+        "Typ_CURVE",            // 0x10
+        "Typ_HMAC_KEY",         // 0x11
+	};
+	size_t index = (size_t)aCode;
+	size_t fact = (index & 0x20u) != 0;
+	index &= ~0x20u;
+	const size_t count = sizeof(pcNames) / sizeof(pcNames[0]);
+	if(index >= 1 && index < count)
+	{
+		snprintf(pcNameSpace, sizeof pcNameSpace, "%s%s", pcNames[index-1], fact ? " F" : "");
+	}
+	else
+	{
+		snprintf(pcNameSpace, sizeof pcNameSpace, "Type 0x%X%s", aCode, fact ? " F" : "");
+	}
+	return pcNameSpace;
+};
+
+static const sSlot sSlots[] = {
+///*0*/    { 0x12345678, "NIST-P", "Key Pair",     256  },
+///*1*/    { 0x7fff0201, "NIST-P", "Key Pair",     256  },
+///*2*/    { 0x7fff0202, "NIST-P", "Key Pair",     256  },
+///*3*/    { 0x7fff0204, "NIST-P", "Public Key",   256  },
+///*4*/    { 0x7fff0206, "BINARY", "Binary",       144  },
+///*5*/    { 0x7fff020b, "HMAC  ", "HMAC",         0    },
+///*8*/    { 0xf0000002, "NIST-P", "Key Pair",     256  },
+///*9*/    { 0xf0000003, "BINARY", "Binary",       3760 },
+/*6*/      { 0xf0000004, "NIST-P", "Key Pair",     256  },
+/*7*/      { 0xf0000005, "BINARY", "Binary",       3760 },
+
+///*10*/    { 0xf0000012, "NIST-P", "Key Pair",     256  },
+///*11*/    { 0xf0000013, "BINARY", "Binary",       3736 },
+///*12*/    { 0xf0000020, "NIST-P", "Public Key",   256  },
+///*13*/    { 0xf0000100, "NIST-P", "Key Pair",     256  },
+///*14*/    { 0xf0000101, "BINARY", "Binary",       4392 },
+///*15*/    { 0xf0000102, "NIST-P", "Key Pair",     256  },
+///*16*/    { 0xf0000103, "BINARY", "Binary",       4392 },
+///*17*/    { 0xf0003394, "AES   ", "Binary",       256  }
+};
+
 //static sss_status_t sss_se05x_key_object_get_handle_binary(
 //    sss_se05x_object_t *keyObject) {
 //    sss_status_t retval = kStatus_SSS_Success;
