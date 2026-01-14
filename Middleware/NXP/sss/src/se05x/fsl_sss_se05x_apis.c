@@ -879,6 +879,7 @@ sss_status_t sss_se05x_key_object_allocate_handle(sss_se05x_object_t *keyObject,
     if (options == kKeyObject_Mode_Persistent)
         keyObject->isPersistant = 1;
 
+    PRINTF("Installing object ID 0x%X\n", keyId);
     status = Se05x_API_CheckObjectExists(&keyObject->keyStore->session->s_ctx, keyId, &exists);
     if (status == SM_OK) {
         if (exists == kSE05x_Result_SUCCESS) {
@@ -970,8 +971,9 @@ sss_status_t sss_se05x_key_object_get_handle(sss_se05x_object_t *keyObject, uint
 {
     sss_status_t retval = kStatus_SSS_Fail;
 #if SSSFTR_SE05X_KEY_GET
-    SE05x_SecObjTyp_t retObjectType;
-    uint8_t retTransientType;
+	/* _HT_ Clear retObjectType before use. */
+    SE05x_SecObjTyp_t retObjectType = 0;
+    uint8_t retTransientType = 0;
     SE05x_ECCurve_t retCurveId;
     const SE05x_AttestationType_t attestationType = kSE05x_AttestationType_None;
     smStatus_t apiRetval;
@@ -983,12 +985,59 @@ sss_status_t sss_se05x_key_object_get_handle(sss_se05x_object_t *keyObject, uint
         return retval;
     }
 
-    apiRetval = Se05x_API_ReadType(
-        &keyObject->keyStore->session->s_ctx, keyId, &retObjectType, &retTransientType, attestationType);
+    {
+		retObjectType = 0;
+		retTransientType = 0;
+		uint32_t oldKey = keyId;
+//		for (int index = 0; index < sizeof(sSlots)/sizeof (sSlots[0]); index++)
+		int index = (keyId == 0xf0000004) ? 0 : 1;
+		{
+			keyId = sSlots[index].ulKey;
+    		apiRetval = Se05x_API_ReadType(
+				&keyObject->keyStore->session->s_ctx,
+				keyId,
+				&retObjectType,
+				&retTransientType,
+				attestationType);
+//			kSE05x_SecObjTyp_AES_KEY = 0x09,
+//			kSE05x_SecObjTyp_BINARY_FILE = 0x0B,
+			PRINTF("sss_se_key_object_get_handle: key %08X ObjectType 0x%X (0x%X) trType 0x%X (%s, %s) %s\n",
+				keyId, retObjectType, retObjectType & ~0x20u, retTransientType,
+				sSlots[index].type,
+				sSlots[index].contents,
+				objectTypeName(retObjectType));
+if (keyId == 0xF0000004)
+{
+	if (retObjectType != kSE05x_SecObjTyp_EC_KEY_PAIR) {
+		PRINTF("Force using 'kSE05x_SecObjTyp_EC_KEY_PAIR' and not %u\n", retObjectType);
+	retObjectType = kSE05x_SecObjTyp_EC_KEY_PAIR;
+}
+}
+//			if (keyId == oldKey)
+//			{
+//				break;
+//			}
+		}
+		keyId = oldKey;
+		retObjectType &= ~0x20u;
+    }
+
+
     if (apiRetval == SM_OK) {
         keyObject->isPersistant = retTransientType;
         if (retObjectType >= kSE05x_SecObjTyp_EC_KEY_PAIR && retObjectType <= kSE05x_SecObjTyp_EC_PUB_KEY) {
-            apiRetval = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, keyId, &retCurveId);
+			{
+				uint32_t useKey = keyId;
+				if(useKey == 0xF0000005)
+				{
+					PRINTF("sss_se05x_key_object_get_handle: force using 0xF0000004\n");
+					useKey = 0xF0000004;
+				}
+				apiRetval = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, useKey, &retCurveId);
+			}
+			if(apiRetval != SM_OK) {
+				PRINTF("retCurveId = %d (0x%X) apiRetval = 0x%X\n", retCurveId, retCurveId, apiRetval);
+			}
             if (apiRetval == SM_OK) {
                 keyObject->curve_id = retCurveId;
                 if ((retCurveId == kSE05x_ECCurve_NIST_P256)
@@ -2572,7 +2621,15 @@ static sss_status_t sss_se05x_key_store_set_ecc_key(sss_se05x_key_store_t *keySt
 
     if (exists == kSE05x_Result_SUCCESS) {
         /* Check if object is of same curve id */
-        status = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, keyObject->keyId, &retCurveId);
+		{
+			uint32_t useKey = keyObject->keyId;
+			if(useKey == 0xF0000005)
+			{
+				PRINTF("sss_se05x_key_store_set_ecc_key: force using 0xF0000004\n");
+				useKey = 0xF0000004;
+			}
+			status = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, useKey, &retCurveId);
+		}
         ENSURE_OR_GO_EXIT(status == SM_OK);
 
         if (retCurveId == keyObject->curve_id) {
