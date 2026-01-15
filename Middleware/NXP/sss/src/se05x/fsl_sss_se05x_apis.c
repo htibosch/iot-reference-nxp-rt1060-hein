@@ -894,13 +894,6 @@ sss_status_t sss_se05x_key_object_allocate_handle(sss_se05x_object_t *keyObject,
     return retval;
 }
 
-typedef struct {
-	uint32_t ulKey;
-	const char *type;
-	const char *contents;
-	uint32_t ulBitsize;
-} sSlot;
-
 static const char * objectTypeName(SE05x_SecureObjectType_t aCode)
 {
 	static char pcNameSpace[32];
@@ -938,35 +931,6 @@ static const char * objectTypeName(SE05x_SecureObjectType_t aCode)
 	return pcNameSpace;
 };
 
-static const sSlot sSlots[] = {
-///*0*/    { 0x12345678, "NIST-P", "Key Pair",     256  },
-///*1*/    { 0x7fff0201, "NIST-P", "Key Pair",     256  },
-///*2*/    { 0x7fff0202, "NIST-P", "Key Pair",     256  },
-///*3*/    { 0x7fff0204, "NIST-P", "Public Key",   256  },
-///*4*/    { 0x7fff0206, "BINARY", "Binary",       144  },
-///*5*/    { 0x7fff020b, "HMAC  ", "HMAC",         0    },
-///*8*/    { 0xf0000002, "NIST-P", "Key Pair",     256  },
-///*9*/    { 0xf0000003, "BINARY", "Binary",       3760 },
-/*6*/      { 0xf0000004, "NIST-P", "Key Pair",     256  },
-/*7*/      { 0xf0000005, "BINARY", "Binary",       3760 },
-
-///*10*/    { 0xf0000012, "NIST-P", "Key Pair",     256  },
-///*11*/    { 0xf0000013, "BINARY", "Binary",       3736 },
-///*12*/    { 0xf0000020, "NIST-P", "Public Key",   256  },
-///*13*/    { 0xf0000100, "NIST-P", "Key Pair",     256  },
-///*14*/    { 0xf0000101, "BINARY", "Binary",       4392 },
-///*15*/    { 0xf0000102, "NIST-P", "Key Pair",     256  },
-///*16*/    { 0xf0000103, "BINARY", "Binary",       4392 },
-///*17*/    { 0xf0003394, "AES   ", "Binary",       256  }
-};
-
-//static sss_status_t sss_se05x_key_object_get_handle_binary(
-//    sss_se05x_object_t *keyObject) {
-//    sss_status_t retval = kStatus_SSS_Success;
-//    keyObject->objectType = kSSS_KeyPart_Default;
-//    keyObject->cipherType = kSSS_CipherType_Binary;
-//    return retval;
-//}
 sss_status_t sss_se05x_key_object_get_handle(sss_se05x_object_t *keyObject, uint32_t keyId)
 {
     sss_status_t retval = kStatus_SSS_Fail;
@@ -988,11 +952,7 @@ sss_status_t sss_se05x_key_object_get_handle(sss_se05x_object_t *keyObject, uint
     {
 		retObjectType = 0;
 		retTransientType = 0;
-		uint32_t oldKey = keyId;
-//		for (int index = 0; index < sizeof(sSlots)/sizeof (sSlots[0]); index++)
-		int index = (keyId == 0xf0000004) ? 0 : 1;
 		{
-			keyId = sSlots[index].ulKey;
     		apiRetval = Se05x_API_ReadType(
 				&keyObject->keyStore->session->s_ctx,
 				keyId,
@@ -1001,27 +961,20 @@ sss_status_t sss_se05x_key_object_get_handle(sss_se05x_object_t *keyObject, uint
 				attestationType);
 //			kSE05x_SecObjTyp_AES_KEY = 0x09,
 //			kSE05x_SecObjTyp_BINARY_FILE = 0x0B,
-			PRINTF("sss_se_key_object_get_handle: key %08X ObjectType 0x%X (0x%X) trType 0x%X (%s, %s) %s\n",
+			PRINTF("sss_se_key_object_get_handle: key %08X ObjectType 0x%X (0x%X) trType 0x%X %s\n",
 				keyId, retObjectType, retObjectType & ~0x20u, retTransientType,
-				sSlots[index].type,
-				sSlots[index].contents,
 				objectTypeName(retObjectType));
-if (keyId == 0xF0000004)
-{
-	if (retObjectType != kSE05x_SecObjTyp_EC_KEY_PAIR) {
-		PRINTF("Force using 'kSE05x_SecObjTyp_EC_KEY_PAIR' and not %u\n", retObjectType);
-	retObjectType = kSE05x_SecObjTyp_EC_KEY_PAIR;
-}
-}
-//			if (keyId == oldKey)
-//			{
-//				break;
-//			}
+			if (keyId == 0xF0000004)
+			{
+				if (retObjectType != kSE05x_SecObjTyp_EC_KEY_PAIR)
+				{
+					PRINTF("Force using 'kSE05x_SecObjTyp_EC_KEY_PAIR' and not %u (0x0%X)\n", retObjectType, retObjectType);
+					retObjectType = kSE05x_SecObjTyp_EC_KEY_PAIR;
+				}
+			}
 		}
-		keyId = oldKey;
 		retObjectType &= ~0x20u;
     }
-
 
     if (apiRetval == SM_OK) {
         keyObject->isPersistant = retTransientType;
@@ -1030,7 +983,7 @@ if (keyId == 0xF0000004)
 				uint32_t useKey = keyId;
 				if(useKey == 0xF0000005)
 				{
-					PRINTF("sss_se05x_key_object_get_handle: force using 0xF0000004\n");
+					PRINTF("sss_se05x_key_object_get_handle: force using 0xF0000004 and not %X\n", useKey);
 					useKey = 0xF0000004;
 				}
 				apiRetval = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, useKey, &retCurveId);
@@ -2625,7 +2578,7 @@ static sss_status_t sss_se05x_key_store_set_ecc_key(sss_se05x_key_store_t *keySt
 			uint32_t useKey = keyObject->keyId;
 			if(useKey == 0xF0000005)
 			{
-				PRINTF("sss_se05x_key_store_set_ecc_key: force using 0xF0000004\n");
+				PRINTF("sss_se05x_key_store_set_ecc_key: force using 0xF0000004 and not 0x%X\n", useKey);
 				useKey = 0xF0000004;
 			}
 			status = Se05x_API_EC_CurveGetId(&keyObject->keyStore->session->s_ctx, useKey, &retCurveId);
